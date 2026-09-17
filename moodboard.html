@@ -63,6 +63,9 @@
     gap: 8px;
     pointer-events: auto;
   }
+  #project-switch-inner{
+    position: relative;
+  }
   #project-select{
     background: rgba(12,26,34,0.85);
     color: var(--foam);
@@ -74,7 +77,67 @@
     max-width: 180px;
     cursor: pointer;
   }
-  #new-project-btn{
+  #project-current{
+    background: rgba(12,26,34,0.85);
+    color: var(--foam);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px;
+    max-width: 180px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    user-select: none;
+  }
+  #project-current:hover{ border-color: var(--accent); }
+  #project-dropdown{
+    position: absolute;
+    top: calc(100% + 6px); left: 0;
+    background: rgba(6,16,24,0.97);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-width: 180px;
+    max-width: 260px;
+    max-height: 240px;
+    overflow-y: auto;
+    display: none;
+    z-index: 30;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+  }
+  #project-dropdown.open{ display: block; }
+  .project-row{
+    display:flex;
+    align-items:center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px;
+    color: var(--foam);
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .project-row:last-child{ border-bottom: none; }
+  .project-row:hover{ background: rgba(255,255,255,0.06); }
+  .project-row.active{ color: var(--accent); }
+  .project-row .pname{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .project-row .ptrash{
+    flex-shrink:0;
+    width:18px; height:18px;
+    display:flex; align-items:center; justify-content:center;
+    border-radius:4px;
+    color: rgba(223,238,240,0.4);
+    font-size: 11px;
+  }
+  .project-row .ptrash:hover{ color: #ff9d8a; background: rgba(255,157,138,0.12); }
+  #new-project-btn, #delete-project-btn{
     background: rgba(12,26,34,0.85);
     color: var(--foam-dim);
     border: 1px solid var(--line);
@@ -84,7 +147,8 @@
     cursor: pointer;
     display:flex; align-items:center; justify-content:center;
   }
-  #new-project-btn:hover{ color: var(--foam); border-color: var(--accent); }
+  #new-project-btn:hover, #delete-project-btn:hover{ color: var(--foam); border-color: var(--accent); }
+  #delete-project-btn:hover{ color: #ff9d8a; border-color: #ff9d8a; }
   #board{
     position:absolute; inset:0;
     width: 3200px; height: 2000px;
@@ -180,6 +244,22 @@
     color: var(--foam-dim);
     font-size: 13px;
     line-height: 16px;
+  }
+  #guide-v{
+    position:absolute; top:0; left:0;
+    width:1px; height:2000px;
+    background: rgba(255,255,255,0.85);
+    pointer-events:none;
+    z-index: 1000;
+    display:none;
+  }
+  #guide-h{
+    position:absolute; top:0; left:0;
+    width:3200px; height:1px;
+    background: rgba(255,255,255,0.85);
+    pointer-events:none;
+    z-index: 1000;
+    display:none;
   }
   .card .resize::after{
     content:"";
@@ -406,12 +486,18 @@
 </header>
 
 <div id="project-switch">
-  <select id="project-select"></select>
+  <div id="project-switch-inner">
+    <div id="project-current">Moodboard</div>
+    <div id="project-dropdown"></div>
+  </div>
   <div id="new-project-btn" title="Nouveau projet">+</div>
 </div>
 
 <div id="viewport">
-  <div id="board"></div>
+  <div id="board">
+    <div id="guide-v"></div>
+    <div id="guide-h"></div>
+  </div>
 </div>
 
 <div id="dropzone"><span>Dépose tes images ici</span></div>
@@ -431,6 +517,8 @@
 <script>
 (function(){
   const board = document.getElementById('board');
+  const guideV = document.getElementById('guide-v');
+  const guideH = document.getElementById('guide-h');
   const viewport = document.getElementById('viewport');
   const dropzone = document.getElementById('dropzone');
   const addBtn = document.getElementById('add-btn');
@@ -441,7 +529,8 @@
   const zoomOut = document.getElementById('zoom-out');
   const zoomReset = document.getElementById('zoom-reset');
 
-  const projectSelect = document.getElementById('project-select');
+  const projectCurrent = document.getElementById('project-current');
+  const projectDropdown = document.getElementById('project-dropdown');
   const newProjectBtn = document.getElementById('new-project-btn');
   const projectTitle = document.getElementById('project-title');
 
@@ -475,13 +564,42 @@
 
   function refreshProjectSelect(){
     const list = getProjects();
-    projectSelect.innerHTML = '';
+    projectCurrent.textContent = currentProject;
+    projectDropdown.innerHTML = '';
     list.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p;
-      opt.textContent = p;
-      if(p === currentProject) opt.selected = true;
-      projectSelect.appendChild(opt);
+      const row = document.createElement('div');
+      row.className = 'project-row' + (p === currentProject ? ' active' : '');
+
+      const name = document.createElement('div');
+      name.className = 'pname';
+      name.textContent = p;
+      name.addEventListener('click', () => {
+        projectDropdown.classList.remove('open');
+        loadProject(p, false);
+      });
+      row.appendChild(name);
+
+      const trash = document.createElement('div');
+      trash.className = 'ptrash';
+      trash.textContent = '×';
+      trash.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if(!confirm(`Supprimer le projet "${p}" et tout son contenu ? Cette action est irréversible.`)) return;
+        let remaining = getProjects().filter(x => x !== p);
+        try{ localStorage.removeItem(dataKey(p)); }catch(err){}
+        if(remaining.length === 0) remaining = [DEFAULT_PROJECT];
+        saveProjectsList(remaining);
+        if(p === currentProject){
+          const next = remaining[0];
+          refreshProjectSelect();
+          loadProject(next, next === DEFAULT_PROJECT);
+        } else {
+          refreshProjectSelect();
+        }
+      });
+      row.appendChild(trash);
+
+      projectDropdown.appendChild(row);
     });
   }
 
@@ -532,6 +650,7 @@
     currentProject = project;
     safeSet(LAST_PROJECT_KEY, project);
     projectTitle.textContent = project;
+    refreshProjectSelect();
     clearBoard();
     const raw = safeGet(dataKey(project));
     if(raw){
@@ -757,6 +876,11 @@
     function stop(){ if(rotating){ rotating = false; scheduleSave(); } }
     handle.addEventListener('pointerup', stop);
     handle.addEventListener('pointercancel', stop);
+    handle.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      card.style.transform = 'rotate(0deg)';
+      scheduleSave();
+    });
   }
 
   function makeResizable(handle, img){
@@ -779,6 +903,68 @@
     handle.addEventListener('pointercancel', stop);
   }
 
+  function snapToOtherCards(draggedCard, left, top){
+    const tolerance = 6 / scale;
+    const w = draggedCard.offsetWidth;
+    const h = draggedCard.offsetHeight;
+    const myX = [left, left + w / 2, left + w];
+    const myY = [top, top + h / 2, top + h];
+
+    const targetXs = [];
+    const targetYs = [];
+    board.querySelectorAll('.card').forEach(other => {
+      if(other === draggedCard) return;
+      const ol = parseFloat(other.style.left) || 0;
+      const ot = parseFloat(other.style.top) || 0;
+      const ow = other.offsetWidth;
+      const oh = other.offsetHeight;
+      targetXs.push(ol, ol + ow / 2, ol + ow);
+      targetYs.push(ot, ot + oh / 2, ot + oh);
+    });
+
+    let bestDx = null, bestDxDist = Infinity, snapVX = null;
+    myX.forEach(mx => {
+      targetXs.forEach(tx => {
+        const d = Math.abs(mx - tx);
+        if(d < tolerance && d < bestDxDist){
+          bestDxDist = d;
+          bestDx = tx - mx;
+          snapVX = tx;
+        }
+      });
+    });
+
+    let bestDy = null, bestDyDist = Infinity, snapHY = null;
+    myY.forEach(my => {
+      targetYs.forEach(ty => {
+        const d = Math.abs(my - ty);
+        if(d < tolerance && d < bestDyDist){
+          bestDyDist = d;
+          bestDy = ty - my;
+          snapHY = ty;
+        }
+      });
+    });
+
+    if(snapVX !== null){
+      guideV.style.left = snapVX + 'px';
+      guideV.style.display = 'block';
+    } else {
+      guideV.style.display = 'none';
+    }
+    if(snapHY !== null){
+      guideH.style.top = snapHY + 'px';
+      guideH.style.display = 'block';
+    } else {
+      guideH.style.display = 'none';
+    }
+
+    return {
+      left: bestDx !== null ? left + bestDx : left,
+      top: bestDy !== null ? top + bestDy : top
+    };
+  }
+
   function makeDraggable(card){
     let sx=0, sy=0, ox=0, oy=0, dragging=false, moved=false;
     card.addEventListener('pointerdown', (e) => {
@@ -799,13 +985,25 @@
       if(Math.abs(e.clientX - sx) > 4 || Math.abs(e.clientY - sy) > 4) moved = true;
       const dx = (e.clientX - sx) / scale;
       const dy = (e.clientY - sy) / scale;
-      card.style.left = (ox + dx) + 'px';
-      card.style.top = (oy + dy) + 'px';
+      let newLeft = ox + dx;
+      let newTop = oy + dy;
+      if(!e.altKey){
+        const snapped = snapToOtherCards(card, newLeft, newTop);
+        newLeft = snapped.left;
+        newTop = snapped.top;
+      } else {
+        guideV.style.display = 'none';
+        guideH.style.display = 'none';
+      }
+      card.style.left = newLeft + 'px';
+      card.style.top = newTop + 'px';
     });
     function stop(e){
       if(!dragging) return;
       dragging = false;
       card.classList.remove('dragging');
+      guideV.style.display = 'none';
+      guideH.style.display = 'none';
       scheduleSave();
       if(!moved){
         const editableEl = e.target.closest('[contenteditable="true"]');
@@ -854,11 +1052,19 @@
 
   viewport.addEventListener('wheel', (e) => {
     e.preventDefault();
-    const rect = viewport.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const delta = -e.deltaY * 0.0012;
-    setScale(scale + delta, cx, cy);
+    if(e.ctrlKey){
+      // pinch-to-zoom (trackpad) or ctrl+scroll (mouse)
+      const rect = viewport.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const delta = -e.deltaY * 0.01;
+      setScale(scale + delta, cx, cy);
+    } else {
+      // two-finger pan (trackpad)
+      panX -= e.deltaX;
+      panY -= e.deltaY;
+      applyTransform();
+    }
   }, { passive: false });
 
   // file handling
@@ -912,8 +1118,12 @@
 
   // project switcher handlers
   refreshProjectSelect();
-  projectSelect.addEventListener('change', () => {
-    loadProject(projectSelect.value, false);
+  projectCurrent.addEventListener('click', (e) => {
+    e.stopPropagation();
+    projectDropdown.classList.toggle('open');
+  });
+  document.addEventListener('click', () => {
+    projectDropdown.classList.remove('open');
   });
   newProjectBtn.addEventListener('click', () => {
     const name = prompt('Nom du nouveau projet :');
@@ -925,8 +1135,6 @@
       list.push(trimmed);
       saveProjectsList(list);
     }
-    refreshProjectSelect();
-    projectSelect.value = trimmed;
     loadProject(trimmed, false);
   });
 
