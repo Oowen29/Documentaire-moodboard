@@ -613,6 +613,12 @@
   // zoom
   function setScale(newScale, cx, cy){
     newScale = Math.min(1.6, Math.max(0.25, newScale));
+    if(cx !== undefined && cy !== undefined){
+      const boardX = (cx - panX) / scale;
+      const boardY = (cy - panY) / scale;
+      panX = cx - boardX * newScale;
+      panY = cy - boardY * newScale;
+    }
     scale = newScale;
     applyTransform();
   }
@@ -622,8 +628,11 @@
 
   viewport.addEventListener('wheel', (e) => {
     e.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
     const delta = -e.deltaY * 0.0012;
-    setScale(scale + delta);
+    setScale(scale + delta, cx, cy);
   }, { passive: false });
 
   // file handling
